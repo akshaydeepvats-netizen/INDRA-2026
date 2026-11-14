@@ -353,7 +353,7 @@ def _point_hazard_models(multi):
 @auth.require("weather")
 def location():
     lat, lon = fnum(request.args.get("lat")), fnum(request.args.get("lon"))
-    if lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+    if lat is None or lon is None or not (-150 <= lat <= 150 and -240 <= lon <= 240):
         return jsonify({"error": "valid lat/lon required"}), 400
     name = (request.args.get("name") or "").strip()[:120]
     d = geo.district_at(lat, lon)
