@@ -225,7 +225,7 @@ export async function location_(body, lat, lon, name) {
   M.setSelMarker([lat, lon], name || null);
   M.flyTo(lat, lon, Math.max(M.L_().getZoom(), 9));
   let r;
-  try { r = await api(`/api/location?lat=${lat}&lon=${lon}&name=${encodeURIComponent(name || "")}`, { timeout: 90000 }); }
+  try { r = await api(`/api/location?lat=${lat}&lon=${lon}&name=${encodeURIComponent(name || "")}`, { timeout: 30000 }); }
   catch (e) { body.innerHTML = `<div class="empty">Report unavailable: ${esc(e.message)}. ${stateBadge("UNAVAILABLE")}</div>`; return; }
   S.selected = { lat, lon, name: r.location.name, district: r.location.district?.id };
   S.lastLocation = { lat, lon, name: r.location.name };
