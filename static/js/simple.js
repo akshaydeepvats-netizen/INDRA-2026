@@ -168,8 +168,19 @@ export async function home(body) {
   M.setSelMarker([+hp.lat, +hp.lon], hp.name);
   M.flyTo(+hp.lat, +hp.lon, Math.max(6, Math.min(8, M.L_().getZoom() + 1)));
   let r;
-  try { r = await api(`/api/location?lat=${hp.lat}&lon=${hp.lon}&name=${encodeURIComponent(hp.name)}`, { timeout: 90000 }); }
-  catch (e) { const hb = document.getElementById("homeBody"); if (hb) hb.innerHTML = `<div class="empty">Weather for ${esc(hp.name)} is unavailable: ${esc(e.message)} ${stateBadge("UNAVAILABLE")}</div>`; return; }
+  try {
+    r = await api(`/api/location?lat=${hp.lat}&lon=${hp.lon}&name=${encodeURIComponent(hp.name)}`, { timeout: 25000 });
+    if (!r || typeof r !== "object" || !r.location) throw new Error("The server returned an incomplete location report.");
+  } catch (e) {
+    const hb = document.getElementById("homeBody");
+    if (hb) {
+      const status = e.status ? `HTTP ${e.status}` : "Network / timeout";
+      const code = e.body?.code ? ` · ${e.body.code}` : "";
+      hb.innerHTML = `<div class="empty"><b>Weather data for ${esc(hp.name)} could not be loaded.</b><div style="margin-top:6px">${esc(status + code)} · ${esc(e.message || "Request failed")}</div><div class="note" style="margin-top:6px">Check that the INDRA server is running and that this browser is signed in. If the weather provider is temporarily unavailable, retry in a moment.</div><button class="btn sm" id="hRetry" style="margin-top:10px">Retry weather data</button></div>`;
+      document.getElementById("hRetry")?.addEventListener("click", () => home(body));
+    }
+    return;
+  }
   const hb = document.getElementById("homeBody"); if (!hb) return;
   const near = (S.alerts || []).filter((a) => a.status === "ACTIVE" && a.lat != null && Math.hypot(a.lat - hp.lat, (a.lon - hp.lon) * Math.cos(hp.lat * Math.PI / 180)) < 1.2);
   const n = S.national;
