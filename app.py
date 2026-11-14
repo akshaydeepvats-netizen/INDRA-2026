@@ -31,7 +31,7 @@ import numpy as np
 from flask import Flask, Response, g, jsonify, request, send_from_directory, stream_with_context
 from flask.json.provider import DefaultJSONProvider
 
-from indra import auth, config, geo, mailer, hazards as HZ, imd, lightning, models, net, obs, radar, sachet, store, tracking
+from indra import auth, config, geo, mailer, hazards as HZ, imd, lightning, models, net, obs, radar, rainviewer, sachet, store, tracking
 from indra.engine import ENGINE
 
 # Windows registries sometimes map .js to text/plain, which makes browsers refuse ES modules.
@@ -507,13 +507,79 @@ def cell(cid):
 @auth.require("rain_map")
 def radar_info():
     r = ENGINE.radar
-    frames = [{"time": f["time"], "tiles": radar.tile_template(f["path"])} for f in r.get("frames", [])]
-    return jsonify({"status": precip_state(r), "frame_time": r.get("frame_time"), "frames": frames, "cells": r.get("cells"),
-                    "provider": radar.PROVIDER, "layer": radar.LAYER, "max_zoom": 6, "units": "mm/h",
-                    "attribution": "Precipitation: NASA GIBS / GPM IMERG (NASA, JAXA)",
-                    "himawari": radar.himawari_frames(),
-                    "notice": "IMERG is a satellite precipitation estimate (0.1°, half-hourly) with ~4–6 h latency. Not ground radar, "
-                              "not IMD DWR. Cells older than 90 min are shown as recent history only — no ETA, no screening alert."})
+
+    frames = [
+        {
+            "time": f["time"],
+            "tiles": radar.tile_template(f["path"])
+        }
+        for f in r.get("frames", [])
+    ]
+
+    provider = radar.PROVIDER
+    layer = "nasa_gibs"
+    max_zoom = 6
+    units = "mm/h"
+
+    attribution = "Precipitation: NASA GIBS / GPM IMERG (NASA, JAXA)"
+
+    notice = (
+        "IMERG is a satellite precipitation estimate with "
+        "approximately 4–6 hour latency. It is not ground radar "
+        "or IMD DWR."
+    )
+
+    fallback = None
+
+    # Use RainViewer if NASA has no usable radar frames.
+    if not frames or r.get("status") in ("UNAVAILABLE", "STALE"):
+        rv, rv_meta = rainviewer.frames()
+
+        if rv and rv.get("frames"):
+            frames = rv["frames"]
+            provider = rv["provider"]
+            layer = "rainviewer"
+            max_zoom = rv["max_zoom"]
+            units = rv["units"]
+            attribution = rv["attribution"]
+            notice = rv["notice"]
+
+            fallback = {
+                "used": True,
+                "from": "NASA GIBS",
+                "to": "RainViewer",
+                "reason": "NASA GIBS failed or returned no usable frames",
+                "status": rv["status"]
+            }
+        else:
+            fallback = {
+                "used": False,
+                "from": "NASA GIBS",
+                "to": "RainViewer",
+                "status": "UNAVAILABLE",
+                "error": rv_meta.get("error") or "RainViewer unavailable"
+            }
+
+    radar_status = (
+        fallback.get("status", "UNAVAILABLE")
+        if fallback and fallback.get("used")
+        else precip_state(r)
+    )
+
+    return jsonify({
+        "status": radar_status,
+        "frame_time": r.get("frame_time"),
+        "frames": frames,
+        "cells": r.get("cells"),
+        "provider": provider,
+        "layer": layer,
+        "max_zoom": max_zoom,
+        "units": units,
+        "attribution": attribution,
+        "fallback": fallback,
+        "himawari": radar.himawari_frames(),
+        "notice": notice
+    })
 
 
 @app.get("/api/satellite")
@@ -600,7 +666,7 @@ def ack(aid):
 @app.get("/api/imd")
 @auth.require("official_alerts")
 def imd_api():
-    return jsonify({**imd.summary(), "sachet": sachet.public_state()})
+    return jsonify(_sachet_with_precip_fallback())
 
 
 @app.get("/api/official")
@@ -767,6 +833,40 @@ def _auth_reply(res, err, code=400):
         return jsonify({"error": err}), code
     return jsonify({**res, "features": auth.feature_map(res["user"]["tier"])})
 
+def _sachet_with_precip_fallback():
+    out = sachet.public_state()
+
+    if out.get("status") in ("UNAVAILABLE", "STALE"):
+        rv, rv_meta = rainviewer.frames()
+
+        if rv:
+            out["precipitation_fallback"] = {
+                "status": rv.get("status"),
+                "provider": rv.get("provider"),
+                "frames": rv.get("frames"),
+                "max_zoom": rv.get("max_zoom"),
+                "attribution": rv.get("attribution"),
+                "notice": (
+                    "SUPPLEMENTARY RADAR ONLY. "
+                    "This does not replace NDMA SACHET "
+                    "and does not create official alerts."
+                )
+            }
+        else:
+            out["precipitation_fallback"] = {
+                "status": "UNAVAILABLE",
+                "error": rv_meta.get("error") or "RainViewer unavailable"
+            }
+
+        out["official_feed_warning"] = (
+            "NDMA SACHET is unavailable or stale. "
+            "RainViewer is supplementary radar imagery only. "
+            "Official alerts cannot be inferred from it."
+        )
+    else:
+        out["precipitation_fallback"] = None
+
+    return out
 
 @app.post("/api/auth/register")
 def auth_register():
