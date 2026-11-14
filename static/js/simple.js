@@ -168,7 +168,7 @@ export async function home(body) {
   M.setSelMarker([+hp.lat, +hp.lon], hp.name);
   M.flyTo(+hp.lat, +hp.lon, Math.max(6, Math.min(8, M.L_().getZoom() + 1)));
   let r;
-  try { r = await api(`/api/location?lat=${hp.lat}&lon=${hp.lon}&name=${encodeURIComponent(hp.name)}`, { timeout: 45000 }); }
+  try { r = await api(`/api/location?lat=${hp.lat}&lon=${hp.lon}&name=${encodeURIComponent(hp.name)}`, { timeout: 90000 }); }
   catch (e) { const hb = document.getElementById("homeBody"); if (hb) hb.innerHTML = `<div class="empty">Weather for ${esc(hp.name)} is unavailable: ${esc(e.message)} ${stateBadge("UNAVAILABLE")}</div>`; return; }
   const hb = document.getElementById("homeBody"); if (!hb) return;
   const near = (S.alerts || []).filter((a) => a.status === "ACTIVE" && a.lat != null && Math.hypot(a.lat - hp.lat, (a.lon - hp.lon) * Math.cos(hp.lat * Math.PI / 180)) < 1.2);
